@@ -61,7 +61,7 @@ def transforms(input, target):
     return weights.transforms()(input), new_target
 
 training_dataset = CocoDetection(
-    root='../bouling box.v5i.coco/train',
+    root='../data/bouling box.v5i.coco/train',
     annFile='../data/bouling box.v5i.coco/train/_annotations.coco.json',
     transforms=transforms
 )
