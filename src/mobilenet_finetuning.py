@@ -61,14 +61,14 @@ def transforms(input, target):
     return weights.transforms()(input), new_target
 
 training_dataset = CocoDetection(
-    root='/home/lenny/Documents/DEV/python/cube_detection/code/data/bouling box.v5i.coco/train',
-    annFile='/home/lenny/Documents/DEV/python/cube_detection/code/data/bouling box.v5i.coco/train/_annotations.coco.json',
+    root='../bouling box.v5i.coco/train',
+    annFile='../data/bouling box.v5i.coco/train/_annotations.coco.json',
     transforms=transforms
 )
 
 eval_dataset = CocoDetection(
-    root='/home/lenny/Documents/DEV/python/cube_detection/code/data/bouling box.v5i.coco/valid',
-    annFile='/home/lenny/Documents/DEV/python/cube_detection/code/data/bouling box.v5i.coco/valid/_annotations.coco.json',
+    root='../data/bouling box.v5i.coco/valid',
+    annFile='../data/bouling box.v5i.coco/valid/_annotations.coco.json',
     transforms=transforms
 )
 
