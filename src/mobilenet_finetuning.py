@@ -39,16 +39,12 @@ model.head.classification_head = new_cls_head
 def transforms(input, target):
     if len(target) == 0:
         return None, None
-
     old_size = input.size
     input = Image.fromarray(cv2.resize(np.array(input), (320, 320)))
-
     x_factor = input.size[0] / old_size[0]
     y_factor = input.size[1] / old_size[1]
-
     category_id_list = []
     bbox_list = []
-
     for i in range(len(target)):
         bbox_list.append(
             [
@@ -58,13 +54,10 @@ def transforms(input, target):
                 target[i]['bbox'][1] * y_factor + target[i]['bbox'][3] * y_factor
             ]
         )
-
         category_id_list.append(target[i]['category_id'])
-
     new_target = {}
     new_target['labels'] = torch.tensor(category_id_list)
     new_target['boxes'] = torch.tensor(bbox_list)
-
     return weights.transforms()(input), new_target
 
 training_dataset = CocoDetection(
