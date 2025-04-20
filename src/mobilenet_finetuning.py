@@ -1,4 +1,5 @@
 import os
+import sys
 import torch, torchvision
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
@@ -11,10 +12,11 @@ from PIL import Image
 import numpy as np
 import cv2
 from tqdm import tqdm
+import albumentations as A
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-CUSTOM_CLASSES = ["black box", "blue box", "green box", "red box", "white box"]
+CUSTOM_CLASSES = ["box"]
 NUM_CLASSES = len(CUSTOM_CLASSES) + 1
 
 weights = SSDLite320_MobileNet_V3_Large_Weights.COCO_V1
@@ -36,40 +38,77 @@ new_cls_head = SSDLiteClassificationHead(
 
 model.head.classification_head = new_cls_head
 
-def transforms(input, target):
+training_augmentation = A.Compose(
+    [
+        A.HorizontalFlip(p=0.5),
+        A.VerticalFlip(p=0.5),
+        A.RandomBrightnessContrast(p=0.35),
+        A.Sharpen(p=0.35),
+        A.GaussianBlur(p=0.35),
+        A.Resize(height=320, width=320)
+    ],
+    bbox_params=A.BboxParams(format='coco', label_fields=['category_ids']),
+)
+
+eval_augmentation = A.Compose(
+    [
+        A.Resize(height=320, width=320)
+    ],
+    bbox_params=A.BboxParams(format='coco', label_fields=['category_ids'])
+)
+
+def training_transforms(input, target):
     if len(target) == 0:
         return None, None
-    old_size = input.size
-    input = Image.fromarray(cv2.resize(np.array(input), (320, 320)))
-    x_factor = input.size[0] / old_size[0]
-    y_factor = input.size[1] / old_size[1]
-    category_id_list = []
-    bbox_list = []
-    for i in range(len(target)):
-        bbox_list.append(
-            [
-                target[i]['bbox'][0] * x_factor,
-                target[i]['bbox'][1] * y_factor,
-                target[i]['bbox'][0] * x_factor + target[i]['bbox'][2] * x_factor,
-                target[i]['bbox'][1] * y_factor + target[i]['bbox'][3] * y_factor
-            ]
-        )
-        category_id_list.append(target[i]['category_id'])
+    bbox_list = [ann['bbox'] for ann in target]
+    category_id_list = [ann['category_id'] for ann in target]
+    augmented = training_augmentation(image=np.array(input), bboxes=bbox_list, category_ids=category_id_list)
+    input = torch.from_numpy(augmented['image']).permute(2, 0, 1).float() / 255.0
+    bbox_list_coco = augmented['bboxes']
+    bbox_list_xyxy = []
+    if bbox_list_coco:
+        for box in bbox_list_coco:
+            xmin, ymin, w, h = box
+            xmax = xmin + w
+            ymax = ymin + h
+            bbox_list_xyxy.append([xmin, ymin, xmax, ymax])
+    category_id_list = augmented['category_ids']
     new_target = {}
-    new_target['labels'] = torch.tensor(category_id_list)
-    new_target['boxes'] = torch.tensor(bbox_list)
-    return weights.transforms()(input), new_target
+    new_target['labels'] = torch.tensor(category_id_list).to(torch.int64)
+    new_target['boxes'] = torch.tensor(bbox_list_xyxy)
+    return input, new_target
+
+def eval_transforms(input, target):
+    if len(target) == 0:
+        return None, None
+    bbox_list = [ann['bbox'] for ann in target]
+    category_id_list = [ann['category_id'] for ann in target]
+    augmented = eval_augmentation(image=np.array(input), bboxes=bbox_list, category_ids=category_id_list)
+    input = torch.from_numpy(augmented['image']).permute(2, 0, 1).float() / 255.0
+    bbox_list_coco = augmented['bboxes']
+    bbox_list_xyxy = []
+    if bbox_list_coco:
+        for box in bbox_list_coco:
+            xmin, ymin, w, h = box
+            xmax = xmin + w
+            ymax = ymin + h
+            bbox_list_xyxy.append([xmin, ymin, xmax, ymax])
+    category_id_list = augmented['category_ids']
+    new_target = {}
+    new_target['labels'] = torch.tensor(category_id_list).to(torch.int64)
+    new_target['boxes'] = torch.tensor(bbox_list_xyxy)
+    return input, new_target
 
 training_dataset = CocoDetection(
     root='../data/bouling box.v5i.coco/train',
     annFile='../data/bouling box.v5i.coco/train/_annotations.coco.json',
-    transforms=transforms
+    transforms=training_transforms
 )
 
 eval_dataset = CocoDetection(
     root='../data/bouling box.v5i.coco/valid',
     annFile='../data/bouling box.v5i.coco/valid/_annotations.coco.json',
-    transforms=transforms
+    transforms=eval_transforms
 )
 
 def collate_fn(batch):
@@ -85,7 +124,7 @@ def training_loop(model, optimizer, dataloader, epochs):
     model.to(device)
     for epoch in range(epochs):
         total_loss = 0.0
-        for batch in tqdm(dataloader):
+        for batch in tqdm(dataloader, file=sys.stdout):
             inputs, targets = batch
             inputs = inputs.to(device)
             targets_on_gpu = []
@@ -97,7 +136,7 @@ def training_loop(model, optimizer, dataloader, epochs):
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
-        print(f"Epoch {epoch + 1}/{epochs}, Loss: {total_loss / len(dataloader)}")
+        print(f"Epoch {epoch + 1}/{epochs}, Loss: {total_loss / len(dataloader)}\n")
     return model.state_dict()
 
 adam = torch.optim.Adam(model.parameters())
@@ -111,7 +150,7 @@ def evaluation_loop(model, dataloader):
     model.eval()
     model.to(device)
     with torch.no_grad():
-        for batch in tqdm(dataloader):
+        for batch in tqdm(dataloader, file=sys.stdout):
             inputs, targets = batch
             inputs = inputs.to(device)
             targets_on_gpu = []
